@@ -37,5 +37,6 @@ Thumbs.db
 .env
 .env.local
 
-# Generated figures (optional — uncomment if you want to exclude)
-# figures/
+# Generated figures and local tool metadata
+figures/
+.claude/
