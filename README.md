@@ -535,3 +535,52 @@ completely and it plateaus *higher* (`MAE=0.1134` vs. `0.0585` at
 which it does (`MAE=0.0274`, the lowest resume MAE seen in this project).
 **This argues against "exploration grain" as the primary explanation** and for
 the reward-shape (gradient-starvation) hypothesis.
+
+---
+
+## Stage 3: RLHF Preference Simulator and Training Pipeline
+
+### Requirements
+
+```
+pip install numpy matplotlib torch --index-url https://download.pytorch.org/whl/cpu
+```
+
+### Run
+
+```
+python stage3_rlhf_preferences.py
+```
+
+### Task and training setup
+
+This stage tests whether the **gradient starvation** artifact seen in Stage 2 also applies to human preference aggregation (RLHF), where a model is trained on a **pairwise binary preference** instead of an absolute tolerance.
+
+Using the same 1D regression-as-control task (`sin(x)`), the agent generates **two actions** (`a1`, `a2`) for each input. A simulated human evaluator judges the actions based on their true utility (negative error, `u = -|a - t|`) plus some Gaussian perception noise (`HUMAN_NOISE_SIGMA = 0.5`). 
+
+Two training rewards are compared:
+- **binary (RLHF style)**: `r1 = 1` if `u1 + noise1 > u2 + noise2` else `0`. This gives a strict win/loss.
+- **shaped (Continuous BT)**: `r1 = sigmoid((u1 - u2) / temperature)`. This is the continuous Bradley-Terry probability.
+
+The model is trained via paired REINFORCE on these preferences, and evaluated against the held-out oracle MAE.
+
+### Results & Figures
+
+#### `figures/stage3_fig1_binary_plateau.png`
+**Hypothesis tested:** A strict binary preference reward (win/loss) causes the model to prematurely plateau because the local gradient vanishes when the two generated actions are close in quality, even if the model hasn't reached its capacity ceiling.
+- **Confirming result:** Across all 5 seeds, training under the binary preference reward plateaus. The quantitative plateau detector fired for 5/5 seeds.
+
+#### `figures/stage3_fig2_resume_vs_controls.png`
+**Hypothesis tested:** Switching from a strict binary preference to the continuous (shaped) preference probability allows the model to resume improving.
+- **Confirming result:** In 5/5 seeds, the `resume` phase (binary -> shaped) broke past the plateau and achieved a lower MAE than the `continue-binary` control, with a mean improvement of +0.0267.
+
+### Console summary / acceptance criteria
+
+```text
+[PASS] 1. quantitative plateau detected for 5/5 seeds
+[PASS] 2. resume beats continue-binary control: resume wins in 5/5 seeds, mean improvement = +0.0267
+
+  Resume-effect result: POSITIVE (oracle resumed and beat the control)
+```
+
+**Inference:** The "plateaus" and "capability ceilings" commonly observed in RLHF scaling curves can be artificially induced by the binary nature of pairwise preference aggregation. When the policy's actions become competitive, the sparse win/loss signal provides zero local gradient to differentiate small improvements. Switching to a continuous probability metric unlocks the gradient and allows performance to resume scaling.
